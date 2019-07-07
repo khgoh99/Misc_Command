@@ -1,0 +1,135 @@
+version: '3'
+services:
+  db:
+    container_name: mariadb
+    image: mariadb
+    command: --transaction-isolation=READ-COMMITTED --binlog-format=ROW
+    restart: always
+    networks:
+      - onlyoffice
+    volumes:
+      - db:/var/lib/mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=<password>
+    env_file:
+      - db.env
+
+  app:
+    container_name: app-server
+    image: nextcloud:16.0-fpm
+    stdin_open: true
+    tty: true
+    restart: always
+    env_file:
+      - db.env
+    depends_on:
+      - db
+    expose:
+      - '80'
+      - '9000'
+    networks:
+      - onlyoffice
+    volumes:
+      - app_data:/var/www/html
+
+  onlyoffice-document-server:
+    container_name: onlyoffice-document-server
+    image: onlyoffice/documentserver:latest
+    stdin_open: true
+    tty: true
+    restart: always
+    networks:
+      - onlyoffice
+    expose:
+      - '80'
+      - '443'
+    volumes:
+      - document_data:/var/www/onlyoffice/Data
+      - document_log:/var/log/onlyoffice
+  nginx:
+    container_name: nginx-server
+    image: nginx
+    stdin_open: true
+    tty: true
+    restart: always
+    networks:
+      - traefik-public
+      - onlyoffice
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - app_data:/var/www/html
+    depends_on:
+      - traefik
+    labels:
+        - traefik.frontend.rule=Host:${DOMAIN?Variable DOMAIN not set}
+        - traefik.enable=true
+        - traefik.port=80
+        - traefik.tags=traefik-public
+        - traefik.docker.network=traefik-public
+        # Traefik service that listens to HTTP
+        - traefik.redirectorservice.frontend.entryPoints=http
+        - traefik.redirectorservice.frontend.redirect.entryPoint=https
+        # Traefik service that listens to HTTPS
+        - traefik.webservice.frontend.entryPoints=https
+
+  traefik:
+    container_name: traefik
+    image: traefik:v1.7
+    ports:
+      - 80:80
+      - 443:443
+    labels:
+        - traefik.frontend.rule=Host:traefik.${DOMAIN?Variable DOMAIN not set}
+        - traefik.enable=true
+        - traefik.port=8080
+        - traefik.tags=traefik-public
+        - traefik.docker.network=traefik-public
+        # Traefik service that listens to HTTP
+        - traefik.redirectorservice.frontend.entryPoints=http
+        - traefik.redirectorservice.frontend.redirect.entryPoint=https
+        # Traefik service that listens to HTTPS
+        - traefik.webservice.frontend.entryPoints=https
+        - traefik.frontend.auth.basic.users=${USERNAME?Variable USERNAME not set}:${HASHED_PASSWORD?Variable HASHED_PASSWORD not set}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./app/traefik/acme.json:/acme.json
+    command: >
+      --docker
+      --docker.watch
+      --docker.exposedbydefault=false
+      --constraints=tag==traefik-public
+      --entrypoints='Name:http Address::80'
+      --entrypoints='Name:https Address::443 TLS'
+      --acme
+      --acme.email=${EMAIL?Variable EMAIL not set}
+      --acme.storage="acme.json"
+      --acme.entryPoint=https
+      --acme.httpChallenge.entryPoint=http
+      --acme.onhostrule=true
+      --acme.acmelogging=true
+      --logLevel=INFO
+      --accessLog
+      --api
+    networks:
+      - traefik-public
+      - default
+
+networks:
+  onlyoffice:
+    driver: 'bridge'
+  traefik-public:
+    external: true
+
+volumes:
+  db:
+  document_data:
+  document_log:
+  app_data:
+  mysql_data:
+
+
+
+
+
+      
+      
